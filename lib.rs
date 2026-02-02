@@ -7,6 +7,37 @@ mod reportes {
     use ink::prelude::vec::Vec;
     use marketplacedescentralizado::prelude::*;
     
+    //TODO: Los tipos de retorno son genericos. Hay que crear 
+    //      un struct que contenga producto_id, nombre del producto
+    //      y cantidad total de ventas (entregadas).
+    pub trait ConsultasProductos{
+        fn get_productos_mas_vendidos(&self, limit_to: u32) -> Vec<Producto>;
+    }
+
+
+    //TODO: Los tipos de retorno son genericos. Hay que crear 
+    //      un struct que contenga categoria_id, nombre categoria
+    //      y cantidad total de ventas (entregadas) de la categoria
+    //      y calificacion promedio de la categoria. Se retorna un Vec.   
+    pub trait ConsultasCategorias{
+        fn get_estadisticas_por_categoria(&self, categoria: &str) -> Vec<String>;
+    }
+
+    //TODO: Los tipos de retorno son genericos. Hay que crear 
+    //      un struct que contenga usuario_id, nombre_usuario,
+    //      y cantidad total ordenes (todas). Se retorna un Vec
+    //      para (get_cantidad_de_ordenes_por_usuario).   
+    ///
+    //      Despues, hay que crear un struct que contenga account_id, 
+    //      nombre del usuario y su reputacion. Se retorna el Vec
+    //      ordenado DESC por reputacion de usuario (ver como ordenar, si
+    ///     por str o por numerico)
+    pub trait ConsultasUsuarios{
+        fn get_cantidad_de_ordenes_por_usuario(&self) -> Vec<String>;
+
+        fn get_mejores_usuarios_por_rol(&self, limit_to: u8, target_role: Rol) -> Vec<Usuario>;
+    }
+
 
     #[ink(storage)]
     pub struct Reportes {
