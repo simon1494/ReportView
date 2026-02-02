@@ -6,7 +6,8 @@ use marketplacedescentralizado::SistemaRef;
 mod reportes {
     use super::*;
     use ink::prelude::vec::Vec;
-    use marketplacedescentralizado::Publicacion;
+    use marketplacedescentralizado::Usuario;
+    use ink::env::call::FromAccountId;
 
     #[ink(storage)]
     pub struct Reportes {
@@ -15,19 +16,16 @@ mod reportes {
 
     impl Reportes {
         #[ink(constructor)]
-        pub fn new(other_contract_code_hash: Hash) -> Self {
-            let original = SistemaRef::new(true)
-                .code_hash(other_contract_code_hash)
-                .endowment(0)
-                .salt_bytes([0xDE, 0xAD, 0xBE, 0xEF])
-                .instantiate();
+        pub fn new(address: AccountId) -> Self {
+            let original = SistemaRef::from_account_id(address);
 
             Self { original }
         }
 
+        /// Devuelve una lista de todos los usuarios registrados en el contrato original.
         #[ink(message)]
-        pub fn avergaston(&mut self) -> Vec<Publicacion> {
-            self.original.listar_publicaciones()
+        pub fn listar_usuarios(&self) -> Vec<Usuario> {
+            self.original.listar_usuarios()
         }
     }
 }
