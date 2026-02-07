@@ -33,9 +33,11 @@ mod reportes {
     //      ordenado DESC por reputacion de usuario (ver como ordenar, si
     ///     por str o por numerico)
     pub trait ConsultasUsuarios{
+
+        
         fn get_cantidad_de_ordenes_por_usuario(&self) -> Vec<String>;
 
-        fn get_mejores_usuarios_por_rol(&self, limit_to: u8, target_role: Rol) -> Vec<Usuario>;
+        fn get_mejores_usuarios_por_rol(&self,usuarios:Vec<Usuario>, target_role: Rol) -> Vec<Usuario>;  //separar por rol compra vender
     }
 
 
