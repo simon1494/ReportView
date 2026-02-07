@@ -35,9 +35,9 @@ mod reportes {
     pub trait ConsultasUsuarios{
 
         
-        fn get_cantidad_de_ordenes_por_usuario(&self) -> Vec<String>;
+        fn get_cantidad_de_ordenes_por_usuario(&self) -> Vec<ReporteOrdenesUsuario>;
 
-        fn get_mejores_usuarios_por_rol(&self,usuarios:Vec<Usuario>, target_role: Rol) -> Vec<Usuario>;  //separar por rol compra vender
+        fn get_mejores_usuarios_por_rol(&self, target_role: Rol) -> Vec<Usuario>;  //separar por rol compra vender
     }
 
 
@@ -50,7 +50,6 @@ mod reportes {
         #[ink(constructor)]
         pub fn new(address: AccountId) -> Self {
             let original = SistemaRef::from_account_id(address);
-
             Self { original }
         }
 
@@ -58,6 +57,28 @@ mod reportes {
         #[ink(message)]
         pub fn listar_usuarios(&self) -> Vec<Usuario> {
             self.original.listar_usuarios()
+        }
+    }
+    impl ConsultasUsuarios for Reportes {
+        #[ink(message)]
+        fn get_cantidad_de_ordenes_por_usuario(&self) -> Vec<ReporteOrdenesUsuario> {
+            let usuarios = self.original.listar_usuarios();
+            let ordenes = self.original.listar_ordenes();    
+            let mut reporte = Vec::new();
+
+            for usuario in usuarios {
+                let mut contador = 0;
+                for orden in &ordenes {
+                    if orden.get_id_comprador() == usuario.get_id() {
+                        contador += 1;
+                    }}
+                let item = ReporteOrdenesUsuario {
+                    nombre_usuario: usuario.get_name(),
+                    cantidad_ordenes: contador,
+                };
+                reporte.push(item);
+            }
+            reporte
         }
     }
 }
