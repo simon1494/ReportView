@@ -2,7 +2,7 @@
 name = "reportes"
 version = "0.1.0"
 authors = [
-    "[Agustin Mediotti] <[agustinmediotti@gmail.com]>, [Avila Tadeo] <[tadeo.i.avila@gmail.com]>, [Agustin Olthoff] <[agusoltghoff2002@gmail.com]>, [Juan Tettamanti] <[juan.tettamanti11@gmail.com], [Simon Bierozko] <[simon.bierozko@gmail.com]>",
+    "[Simon Bierozko] <[simon.bierozko@gmail.com]>",
 ]
 edition = "2021"
 
@@ -13,7 +13,7 @@ scale = { package = "parity-scale-codec", version = "3", default-features = fals
     "derive",
 ] }
 scale-info = { version = "2", default-features = false, features = ["derive"] }
-marketplacedescentralizado = { path = "../marketplacedescentralizado", default-features = false, features = ["ink-as-dependency"] }
+RustMarket = { path = "../RustMarket", default-features = false, features = ["ink-as-dependency"] }
 
 [dev-dependencies]
 ink_e2e = { version = "5.1.1" }
@@ -23,6 +23,6 @@ path = "lib.rs"
 
 [features]
 default = ["std"]
-std = ["ink/std", "marketplacedescentralizado/std"]
+std = ["ink/std", "RustMarket/std"]
 ink-as-dependency = []
 e2e-tests = []
