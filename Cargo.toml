@@ -13,7 +13,7 @@ scale = { package = "parity-scale-codec", version = "3", default-features = fals
     "derive",
 ] }
 scale-info = { version = "2", default-features = false, features = ["derive"] }
-RustMarket = { path = "../RustMarket", default-features = false, features = ["ink-as-dependency"] }
+market = { path = "../RustMarket", default-features = false, features = ["ink-as-dependency"] }
 
 [dev-dependencies]
 ink_e2e = { version = "5.1.1" }
@@ -23,6 +23,6 @@ path = "lib.rs"
 
 [features]
 default = ["std"]
-std = ["ink/std", "RustMarket/std"]
+std = ["ink/std", "market/std"]
 ink-as-dependency = []
 e2e-tests = []
