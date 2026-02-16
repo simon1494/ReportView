@@ -2,6 +2,7 @@
 #[allow(dead_code)]
 #[ink::contract]
 mod reportes {
+    use scale_info::prelude::format;
     use ink::env::call::FromAccountId;
     use ink::prelude::{string::String, string::ToString, vec::Vec};
     use market::prelude::{Usuario, *};
@@ -52,7 +53,7 @@ mod reportes {
             productos: Vec<Producto>,
             ordenes: Vec<Orden>,
             publicaciones: Vec<Publicacion>,
-        ) -> Result<Vec<VentasPorProducto>, ErroresReportes>;
+        ) -> Vec<VentasPorProducto>;
 
         fn _mapear_nombres_productos(
             &self,
@@ -69,8 +70,37 @@ mod reportes {
     }
 
     pub trait ConsultasCategorias {
-        fn _get_estadisticas_por_categoria(&self, categoria: &str)
-            -> Vec<EstadisticasPorCategoria>;
+        fn _estadisticas_por_categoria(
+            &self,
+            categorias: Vec<Categoria>,
+            productos: Vec<Producto>,
+            publicaciones: Vec<Publicacion>,
+            ordenes: Vec<Orden>,
+        ) -> Vec<EstadisticasPorCategoria>;
+
+        fn _mapear_productos_por_categoria(
+            &self,
+            categorias: &Vec<Categoria>,
+            productos: &Vec<Producto>,
+        ) -> Vec<(u32, String, Vec<u32>)>;
+
+        fn _contar_ventas_por_categoria(
+            &self,
+            categoria_productos: &Vec<(u32, String, Vec<u32>)>,
+            publicaciones: &Vec<Publicacion>,
+            ordenes: &Vec<Orden>,
+        ) -> Vec<(String, u32)>;
+
+        fn _calcular_promedio_calificaciones_categoria(
+            &self,
+            categoria_productos: &Vec<(u32, String, Vec<u32>)>,
+            publicaciones: &Vec<Publicacion>,
+            ordenes: &Vec<Orden>,
+        ) -> Vec<(String, String)>;
+
+        fn _extraer_calificaciones_de_ordenes(&self, ordenes_categoria: &Vec<&Orden>) -> Vec<u8>;
+
+        fn _calcular_promedio_de_calificaciones(&self, calificaciones: Vec<u8>) -> String;
     }
 
     pub trait ConsultasUsuarios {
@@ -78,13 +108,13 @@ mod reportes {
             &self,
             usuarios: Vec<Usuario>,
             ordenes: Vec<Orden>,
-        ) -> Result<Vec<OrdenesPorUsuario>, ErroresReportes>;
+        ) -> Vec<OrdenesPorUsuario>;
 
         fn _mejores_usuarios_por_rol(
             &self,
             usuarios: Vec<Usuario>,
             target_role: &Rol,
-        ) -> Result<Vec<RatingPorUsuario>, ErroresReportes>;
+        ) -> Vec<RatingPorUsuario>;
 
         fn _listar_mejores_cinco_usuarios(
             &self,
@@ -113,34 +143,45 @@ mod reportes {
 
         /// Retorna una listado con los nombres de todos los usuarios y sus órdenes generadas.
         #[ink(message)]
-        pub fn get_cantidad_de_ordenes_por_usuario(
+        pub fn listar_cantidad_de_ordenes_por_usuario(
             &self,
         ) -> Result<Vec<OrdenesPorUsuario>, ErroresReportes> {
-            let usuarios: Vec<Usuario> = self._get_usuarios()?;
-            let ordenes: Vec<Orden> = self._get_ordenes()?;
-            self._cantidad_de_ordenes_por_usuario(usuarios, ordenes)
+            Ok(self._cantidad_de_ordenes_por_usuario(self._get_usuarios()?, self._get_ordenes()?))
         }
 
         #[ink(message)]
         /// Retorna una lista descendente de los cinco usuarios mejor calificados dentro de un rol.
-        pub fn get_mejores_usuarios_por_rol(
+        pub fn listar_mejores_usuarios_por_rol(
             &self,
             target_role: Rol,
         ) -> Result<Vec<RatingPorUsuario>, ErroresReportes> {
             self._eleccion_disponible(&target_role)?;
-            let usuarios: Vec<Usuario> = self._get_usuarios()?;
-            self._mejores_usuarios_por_rol(usuarios, &target_role)
+            Ok(self._mejores_usuarios_por_rol(self._get_usuarios()?, &target_role))
         }
 
         #[ink(message)]
         /// Retorna una lista descendente de los productos más vendidos.
-        pub fn get_productos_mas_vendidos(
+        pub fn listar_productos_mas_vendidos(
             &self,
         ) -> Result<Vec<VentasPorProducto>, ErroresReportes> {
-            let productos: Vec<Producto> = self._get_productos()?;
-            let ordenes: Vec<Orden> = self._get_ordenes()?;
-            let publicaciones: Vec<Publicacion> = self._get_publicaciones()?;
-            self._productos_mas_vendidos(productos, ordenes, publicaciones)
+            Ok(self._productos_mas_vendidos(
+                self._get_productos()?,
+                self._get_ordenes()?,
+                self._get_publicaciones()?,
+            ))
+        }
+
+        #[ink(message)]
+        /// Retorna estadísticas completas por categoría: ventas totales y calificación promedio.
+        pub fn listar_estadisticas_por_categoria(
+            &self,
+        ) -> Result<Vec<EstadisticasPorCategoria>, ErroresReportes> {
+            Ok(self._estadisticas_por_categoria(
+                self._get_categorias()?,
+                self._get_productos()?,
+                self._get_publicaciones()?,
+                self._get_ordenes()?,
+            ))
         }
 
         fn _get_categorias(&self) -> Result<Vec<Categoria>, ErroresReportes> {
@@ -197,16 +238,17 @@ mod reportes {
             productos: Vec<Producto>,
             ordenes: Vec<Orden>,
             publicaciones: Vec<Publicacion>,
-        ) -> Result<Vec<VentasPorProducto>, ErroresReportes> {
+        ) -> Vec<VentasPorProducto> {
             let productos_x_publicaciones: Vec<(u32, u32, String)> =
                 self._mapear_nombres_productos(publicaciones, &productos);
 
             let mut ventas_por_producto: Vec<VentasPorProducto> =
                 self._contar_ventas_por_producto(&productos, ordenes, productos_x_publicaciones);
-            
-            ventas_por_producto.sort_by(|a: &VentasPorProducto, b: &VentasPorProducto| b.cantidad_ventas.cmp(&a.cantidad_ventas));
 
-            Ok(ventas_por_producto)
+            ventas_por_producto.sort_by(|a: &VentasPorProducto, b: &VentasPorProducto| {
+                b.cantidad_ventas.cmp(&a.cantidad_ventas)
+            });
+            ventas_por_producto
         }
 
         fn _mapear_nombres_productos(
@@ -234,7 +276,6 @@ mod reportes {
             ordenes: Vec<Orden>,
             publis_x_prod: Vec<(u32, u32, String)>,
         ) -> Vec<VentasPorProducto> {
-            
             let mut ventas_por_producto: Vec<VentasPorProducto> = Vec::new();
             for producto in productos {
                 let mut total_ventas: u32 = 0;
@@ -266,7 +307,7 @@ mod reportes {
             &self,
             usuarios: Vec<Usuario>,
             ordenes: Vec<Orden>,
-        ) -> Result<Vec<OrdenesPorUsuario>, ErroresReportes> {
+        ) -> Vec<OrdenesPorUsuario> {
             let mut reporte: Vec<OrdenesPorUsuario> = Vec::new();
 
             for usuario in usuarios {
@@ -283,19 +324,19 @@ mod reportes {
                 reporte.push(item);
             }
 
-            Ok(reporte)
+            reporte
         }
 
         fn _mejores_usuarios_por_rol(
             &self,
             usuarios: Vec<Usuario>,
             target_role: &Rol,
-        ) -> Result<Vec<RatingPorUsuario>, ErroresReportes> {
+        ) -> Vec<RatingPorUsuario> {
             let usuarios_filtrados: Vec<Usuario> =
                 self._filtrar_usuarios_por_rol_desc(usuarios, target_role);
             let reporte: Vec<RatingPorUsuario> =
                 self._listar_mejores_cinco_usuarios(usuarios_filtrados, target_role);
-            Ok(reporte)
+            reporte
         }
 
         fn _listar_mejores_cinco_usuarios(
@@ -355,6 +396,149 @@ mod reportes {
             });
 
             usuarios_filtrados
+        }
+    }
+
+    impl ConsultasCategorias for Reportes {
+        fn _estadisticas_por_categoria(
+            &self,
+            categorias: Vec<Categoria>,
+            productos: Vec<Producto>,
+            publicaciones: Vec<Publicacion>,
+            ordenes: Vec<Orden>,
+        ) -> Vec<EstadisticasPorCategoria> {
+            let categoria_productos = self._mapear_productos_por_categoria(&categorias, &productos);
+            let ventas_por_categoria =
+                self._contar_ventas_por_categoria(&categoria_productos, &publicaciones, &ordenes);
+            let calificaciones_por_categoria = self._calcular_promedio_calificaciones_categoria(
+                &categoria_productos,
+                &publicaciones,
+                &ordenes,
+            );
+
+            let mut estadisticas = Vec::new();
+            for (nombre_categoria, total_ventas) in ventas_por_categoria {
+                let promedio_calificacion = calificaciones_por_categoria
+                    .iter()
+                    .find(|(nombre, _)| nombre == &nombre_categoria)
+                    .map(|(_, promedio)| promedio.clone())
+                    .unwrap_or("0.0".to_string());
+
+                estadisticas.push(EstadisticasPorCategoria {
+                    nombre_categoria,
+                    cantidad_ventas: total_ventas,
+                    promedio_calificacion,
+                });
+            }
+            estadisticas
+        }
+
+        fn _mapear_productos_por_categoria(
+            &self,
+            categorias: &Vec<Categoria>,
+            productos: &Vec<Producto>,
+        ) -> Vec<(u32, String, Vec<u32>)> {
+            let mut categoria_productos = Vec::new();
+
+            for categoria in categorias {
+                let mut productos_ids = Vec::new();
+                for producto in productos {
+                    if producto.get_id_categoria() == categoria.get_id() {
+                        productos_ids.push(producto.get_id());
+                    }
+                }
+                categoria_productos.push((
+                    categoria.get_id(),
+                    categoria.get_nombre(),
+                    productos_ids,
+                ));
+            }
+            categoria_productos
+        }
+
+        fn _contar_ventas_por_categoria(
+            &self,
+            categoria_productos: &Vec<(u32, String, Vec<u32>)>,
+            publicaciones: &Vec<Publicacion>,
+            ordenes: &Vec<Orden>,
+        ) -> Vec<(String, u32)> {
+            let mut ventas_por_categoria = Vec::new();
+
+            for (_, nombre_categoria, productos_ids) in categoria_productos {
+                let mut total_ventas = 0u32;
+
+                for producto_id in productos_ids {
+                    for publicacion in publicaciones {
+                        if publicacion.get_id_producto() == *producto_id {
+                            for orden in ordenes {
+                                if orden.get_status() == EstadoOrden::Recibida
+                                    && orden.get_id_pub() == publicacion.get_id()
+                                {
+                                    total_ventas =
+                                        total_ventas.saturating_add(orden.get_cantidad());
+                                }
+                            }
+                        }
+                    }
+                }
+                ventas_por_categoria.push((nombre_categoria.clone(), total_ventas));
+            }
+            ventas_por_categoria
+        }
+
+        fn _calcular_promedio_calificaciones_categoria(
+            &self,
+            categoria_productos: &Vec<(u32, String, Vec<u32>)>,
+            publicaciones: &Vec<Publicacion>,
+            ordenes: &Vec<Orden>,
+        ) -> Vec<(String, String)> {
+            let mut promedios_por_categoria = Vec::new();
+
+            for (_, nombre_categoria, productos_ids) in categoria_productos {
+                let mut ordenes_categoria = Vec::new();
+
+                for producto_id in productos_ids {
+                    for publicacion in publicaciones {
+                        if publicacion.get_id_producto() == *producto_id {
+                            for orden in ordenes {
+                                if orden.get_status() == EstadoOrden::Recibida
+                                    && orden.get_id_pub() == publicacion.get_id()
+                                {
+                                    ordenes_categoria.push(orden);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let calificaciones = self._extraer_calificaciones_de_ordenes(&ordenes_categoria);
+                let promedio = self._calcular_promedio_de_calificaciones(calificaciones);
+                promedios_por_categoria.push((nombre_categoria.clone(), promedio));
+            }
+            promedios_por_categoria
+        }
+
+        fn _extraer_calificaciones_de_ordenes(&self, ordenes_categoria: &Vec<&Orden>) -> Vec<u8> {
+            let mut calificaciones = Vec::new();
+            for orden in ordenes_categoria {
+                if let Some(calificacion) = orden.get_calificacion_vendedor() {
+                    calificaciones.push(calificacion);
+                }
+            }
+            calificaciones
+        }
+
+        fn _calcular_promedio_de_calificaciones(&self, calificaciones: Vec<u8>) -> String {
+            if calificaciones.is_empty() {
+                return "0.0".to_string();
+            }
+
+            let suma: u32 = calificaciones.iter().map(|&c| c as u32).sum();
+            let cantidad = calificaciones.len() as u32;
+            let promedio_escalado = suma.saturating_mul(10).checked_div(cantidad).unwrap_or(0);
+            let parte_entera = promedio_escalado / 10;
+            let parte_decimal = promedio_escalado % 10;
+            format!("{}.{}", parte_entera, parte_decimal)
         }
     }
 }

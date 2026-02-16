@@ -18,15 +18,9 @@ mod contract {
     #[derive(Debug, PartialEq)]
 
     pub enum ErroresContrato {
-        Aaevaervaqervqerwvqervqqregqergwerv,
-        Aaevaervaqervqerwvqervqwervweqerbhqwertnbqwefqwe,
-        Aaevaervaqervqerwvqervqwwrtnwrtnwrtnervqervwqergbwretb,
-        Aaevaervervqerwvqervqwwrtnwrtnwrtnervqervwqergbwretb,
-        Aaevaervaqervqerwvqervqwwrtnwrtnwrtnervqervwqergqwerqwerbwretb,
-        Aaevaervervqerwvqervqwwrtnwrtnwrtnervqervwqergbwqwerqretb,
-        DatosInvalidos, //nombre o descripcion vacios
-        PrecioInvalido, //precio es  <= 0
-        StockInvalido,  //Stock es <= 0
+        DatosInvalidos,
+        PrecioInvalido,
+        StockInvalido, 
         UsuarioYaExistente,
         UsuarioNoEsComprador,
         UsuarioYaEsComprador,
@@ -3219,5 +3213,296 @@ mod tests {
         println!("Stock después de cancelación: 25");
         println!("Estado final de la orden: {:?}", ordenes_cancelada[0].get_status());
         println!("Publicación activa: {}", publicaciones_final[0].activa);
+    }
+
+    #[ink::test]
+    fn test_cancelar_orden_cuenta_no_registrada() {
+        let mut sistema = setup_sistema();
+        let (comprador, vendedor) = build_testing_accounts();
+        
+        // Solo registro el vendedor, no el comprador
+        registrar_vendedor(&mut sistema, vendedor);
+        agregar_categoria(&mut sistema, "Cat");
+        sistema._crear_producto(vendedor, "P".into(), "D".into(), "Cat".into(), 10).unwrap();
+        sistema._crear_publicacion(0, vendedor, 10, 100).unwrap();
+        
+        // Registrar comprador temporalmente para crear la orden
+        registrar_comprador(&mut sistema, comprador);
+        set_caller(comprador);
+        let id_orden = sistema.crear_orden(0, 1).unwrap();
+        
+        // Crear una cuenta no registrada
+        let cuenta_no_registrada = account_id(AccountKeyring::Charlie);
+        set_caller(cuenta_no_registrada);
+        
+        // Intentar cancelar con cuenta no registrada
+        let res = sistema.cancelar_orden(id_orden);
+        assert_eq!(res, Err(ErroresContrato::CuentaNoRegistrada));
+    }
+
+    #[ink::test]
+    fn test_cancelar_orden_comprador_estados_invalidos() {
+        let mut sistema = setup_sistema();
+        let (comprador, vendedor) = build_testing_accounts();
+        
+        registrar_vendedor(&mut sistema, vendedor);
+        registrar_comprador(&mut sistema, comprador);
+        agregar_categoria(&mut sistema, "Cat");
+        sistema._crear_producto(vendedor, "P".into(), "D".into(), "Cat".into(), 10).unwrap();
+        sistema._crear_publicacion(0, vendedor, 10, 100).unwrap();
+        
+        set_caller(comprador);
+        let id_orden = sistema.crear_orden(0, 1).unwrap();
+        
+        // Test estado Enviada
+        set_caller(vendedor);
+        sistema.enviar_producto(id_orden).unwrap();
+        set_caller(comprador);
+        let res = sistema.cancelar_orden(id_orden);
+        assert_eq!(res, Err(ErroresContrato::OrdenNoPendiente));
+        
+        // Test estado Recibida
+        sistema.recibir_producto(id_orden).unwrap();
+        let res = sistema.cancelar_orden(id_orden);
+        assert_eq!(res, Err(ErroresContrato::OrdenYaRecibida));
+        
+        // Test para PreCancelada y Cancelada - crear nueva orden
+        let id_orden2 = sistema.crear_orden(0, 1).unwrap();
+        
+        // Precancelar
+        let res = sistema.cancelar_orden(id_orden2);
+        assert!(res.is_ok());
+        
+        // Intentar cancelar de nuevo (estado PreCancelada)
+        let res = sistema.cancelar_orden(id_orden2);
+        assert_eq!(res, Err(ErroresContrato::OrdenYaCancelada));
+        
+        // Vendedor confirma cancelación
+        set_caller(vendedor);
+        sistema.cancelar_orden(id_orden2).unwrap();
+        
+        // Comprador intenta cancelar orden ya cancelada
+        set_caller(comprador);
+        let res = sistema.cancelar_orden(id_orden2);
+        assert_eq!(res, Err(ErroresContrato::OrdenYaCancelada));
+    }
+
+    #[ink::test]
+    fn test_cancelar_orden_vendedor_estados_invalidos() {
+        let mut sistema = setup_sistema();
+        let (comprador, vendedor) = build_testing_accounts();
+        
+        registrar_vendedor(&mut sistema, vendedor);
+        registrar_comprador(&mut sistema, comprador);
+        agregar_categoria(&mut sistema, "Cat");
+        sistema._crear_producto(vendedor, "P".into(), "D".into(), "Cat".into(), 10).unwrap();
+        sistema._crear_publicacion(0, vendedor, 10, 100).unwrap();
+        
+        set_caller(comprador);
+        let id_orden = sistema.crear_orden(0, 1).unwrap();
+        
+        // Enviar y recibir orden
+        set_caller(vendedor);
+        sistema.enviar_producto(id_orden).unwrap();
+        set_caller(comprador);
+        sistema.recibir_producto(id_orden).unwrap();
+        
+        // Vendedor intenta cancelar orden recibida
+        set_caller(vendedor);
+        let res = sistema.cancelar_orden(id_orden);
+        assert_eq!(res, Err(ErroresContrato::OrdenYaRecibida));
+        
+        // Test para orden cancelada - crear nueva orden
+        set_caller(comprador);
+        let id_orden2 = sistema.crear_orden(0, 1).unwrap();
+        
+        // Comprador precancela
+        let res = sistema.cancelar_orden(id_orden2);
+        assert!(res.is_ok());
+        
+        // Vendedor confirma cancelación
+        set_caller(vendedor);
+        sistema.cancelar_orden(id_orden2).unwrap();
+        
+        // Vendedor intenta cancelar de nuevo
+        let res = sistema.cancelar_orden(id_orden2);
+        assert_eq!(res, Err(ErroresContrato::OrdenYaCancelada));
+    }
+
+    #[ink::test]
+    fn test_get_id_producto() {
+        let mut sistema = setup_sistema();
+        let vendedor = account_id(AccountKeyring::Alice);
+        
+        registrar_vendedor(&mut sistema, vendedor);
+        agregar_categoria(&mut sistema, "electronica");
+        
+        let id_producto = sistema._crear_producto(
+            vendedor,
+            "Laptop".into(),
+            "Laptop gaming".into(),
+            "electronica".into(),
+            5
+        ).unwrap();
+        
+        let productos = sistema.listar_productos();
+        let producto = &productos[id_producto as usize];
+        
+        assert_eq!(producto.get_id(), id_producto);
+    }
+
+    #[ink::test]
+    fn test_get_nombre_producto() {
+        let mut sistema = setup_sistema();
+        let vendedor = account_id(AccountKeyring::Alice);
+        
+        registrar_vendedor(&mut sistema, vendedor);
+        agregar_categoria(&mut sistema, "electronica");
+        
+        let nombre_esperado = "Laptop Gaming";
+        sistema._crear_producto(
+            vendedor,
+            nombre_esperado.into(),
+            "Laptop para juegos".into(),
+            "electronica".into(),
+            5
+        ).unwrap();
+        
+        let productos = sistema.listar_productos();
+        let producto = &productos[0];
+        
+        assert_eq!(producto.get_nombre(), nombre_esperado);
+    }
+
+    #[ink::test]
+    fn test_get_id_publicacion() {
+        let mut sistema = setup_sistema();
+        let vendedor = account_id(AccountKeyring::Alice);
+        
+        registrar_vendedor(&mut sistema, vendedor);
+        agregar_categoria(&mut sistema, "electronica");
+        sistema._crear_producto(vendedor, "Laptop".into(), "Gaming laptop".into(), "electronica".into(), 10).unwrap();
+        
+        let id_publicacion = sistema._crear_publicacion(0, vendedor, 5, 1000).unwrap();
+        
+        let publicaciones = sistema.listar_publicaciones();
+        let publicacion = &publicaciones[id_publicacion as usize];
+        
+        assert_eq!(publicacion.get_id(), id_publicacion);
+    }
+
+    #[ink::test]
+    fn test_get_id_prod_publicacion() {
+        let mut sistema = setup_sistema();
+        let vendedor = account_id(AccountKeyring::Alice);
+        
+        registrar_vendedor(&mut sistema, vendedor);
+        agregar_categoria(&mut sistema, "electronica");
+        let id_producto = sistema._crear_producto(vendedor, "Laptop".into(), "Gaming laptop".into(), "electronica".into(), 10).unwrap();
+        
+        sistema._crear_publicacion(0, vendedor, 5, 1000).unwrap();
+        
+        let publicaciones = sistema.listar_publicaciones();
+        let publicacion = &publicaciones[0];
+        
+        assert_eq!(publicacion.get_id_producto(), id_producto);
+    }
+
+    #[ink::test]
+    fn test_get_id_pub_orden() {
+        let mut sistema = setup_sistema();
+        let (comprador, vendedor) = build_testing_accounts();
+        
+        registrar_vendedor(&mut sistema, vendedor);
+        registrar_comprador(&mut sistema, comprador);
+        agregar_categoria(&mut sistema, "Cat");
+        sistema._crear_producto(vendedor, "P".into(), "D".into(), "Cat".into(), 10).unwrap();
+        let id_publicacion = sistema._crear_publicacion(0, vendedor, 10, 100).unwrap();
+        
+        set_caller(comprador);
+        let id_orden = sistema.crear_orden(0, 1).unwrap();
+        
+        let ordenes = sistema.listar_ordenes();
+        let orden = &ordenes[id_orden as usize];
+        
+        assert_eq!(orden.get_id_pub(), id_publicacion);
+    }
+
+    #[ink::test]
+    fn test_get_id_comprador_orden() {
+        let mut sistema = setup_sistema();
+        let (comprador, vendedor) = build_testing_accounts();
+        
+        registrar_vendedor(&mut sistema, vendedor);
+        registrar_comprador(&mut sistema, comprador);
+        agregar_categoria(&mut sistema, "Cat");
+        sistema._crear_producto(vendedor, "P".into(), "D".into(), "Cat".into(), 10).unwrap();
+        sistema._crear_publicacion(0, vendedor, 10, 100).unwrap();
+        
+        set_caller(comprador);
+        let id_orden = sistema.crear_orden(0, 1).unwrap();
+        
+        let ordenes = sistema.listar_ordenes();
+        let orden = &ordenes[id_orden as usize];
+        
+        assert_eq!(orden.get_id_comprador(), comprador);
+    }
+
+    #[ink::test]
+    fn test_get_id_vendedor_orden() {
+        let mut sistema = setup_sistema();
+        let (comprador, vendedor) = build_testing_accounts();
+        
+        registrar_vendedor(&mut sistema, vendedor);
+        registrar_comprador(&mut sistema, comprador);
+        agregar_categoria(&mut sistema, "Cat");
+        sistema._crear_producto(vendedor, "P".into(), "D".into(), "Cat".into(), 10).unwrap();
+        sistema._crear_publicacion(0, vendedor, 10, 100).unwrap();
+        
+        set_caller(comprador);
+        let id_orden = sistema.crear_orden(0, 1).unwrap();
+        
+        let ordenes = sistema.listar_ordenes();
+        let orden = &ordenes[id_orden as usize];
+        
+        assert_eq!(orden.get_id_vendedor(), vendedor);
+    }
+
+    #[ink::test]
+    fn test_get_calificacion_vendedor_orden() {
+        let (mut sistema, id_orden, comprador, vendedor) = setup_orden_recibida();
+        
+        // Verificar que inicialmente no hay calificación
+        let ordenes = sistema.listar_ordenes();
+        let orden = &ordenes[id_orden as usize];
+        assert_eq!(orden.get_calificacion_vendedor(), None);
+        
+        // Comprador califica al vendedor
+        set_caller(comprador);
+        sistema.calificar_compra(id_orden, 4).unwrap();
+        
+        // Verificar que la calificación se guardó
+        let ordenes = sistema.listar_ordenes();
+        let orden = &ordenes[id_orden as usize];
+        assert_eq!(orden.get_calificacion_vendedor(), Some(4));
+    }
+
+    #[ink::test]
+    fn test_get_calificacion_comprador_orden() {
+        let (mut sistema, id_orden, comprador, vendedor) = setup_orden_recibida();
+        
+        // Verificar que inicialmente no hay calificación
+        let ordenes = sistema.listar_ordenes();
+        let orden = &ordenes[id_orden as usize];
+        assert_eq!(orden.get_calificacion_comprador(), None);
+        
+        // Vendedor califica al comprador
+        set_caller(vendedor);
+        sistema.calificar_compra(id_orden, 5).unwrap();
+        
+        // Verificar que la calificación se guardó
+        let ordenes = sistema.listar_ordenes();
+        let orden = &ordenes[id_orden as usize];
+        assert_eq!(orden.get_calificacion_comprador(), Some(5));
     }
 }
