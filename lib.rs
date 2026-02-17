@@ -131,7 +131,7 @@ mod reportes {
 
     #[ink(storage)]
     pub struct Reportes {
-        original: SistemaRef,
+        pub original: SistemaRef,
     }
 
     impl Reportes {
@@ -365,6 +365,7 @@ mod reportes {
             top_5
         }
 
+        // Recibe un vector de usuarios y un Rol y retorna solo los usuarios con ese rol
         fn _filtrar_usuarios_por_rol_desc(
             &self,
             usuarios: Vec<Usuario>,
@@ -540,5 +541,539 @@ mod reportes {
             let parte_decimal = promedio_escalado % 10;
             format!("{}.{}", parte_entera, parte_decimal)
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::reportes::*;
+    use market::prelude::*;
+    use ink::{
+        primitives::AccountId,
+    };
+    use ink::env::call::FromAccountId;
+
+    // Helper function para crear un usuario de prueba
+    fn crear_usuario_test(
+        id: AccountId,
+        nombre: &str,
+        email: &str,
+        rol: Rol,
+        calificacion_comprador: (u32, u32),
+        calificacion_vendedor: (u32, u32),
+    ) -> Usuario {
+        let mut rating = Rating::new();
+        rating.calificacion_comprador = calificacion_comprador;
+        rating.calificacion_vendedor = calificacion_vendedor;
+        
+        let mut nuevo: Usuario = Usuario::new(id, nombre.to_string(), email.to_string());
+        nuevo.set_roles(vec![rol]);
+        nuevo.set_rating(rating);
+        nuevo
+    }
+
+    // Helper function para crear AccountId de prueba
+    fn crear_account_id(value: u8) -> AccountId {
+        AccountId::from([value; 32])
+    }
+
+    #[test]
+    fn test_filtrar_usuarios_por_rol_desc_comprador() {
+        // Arrange
+        let reportes = Reportes {
+            original: SistemaRef::from_account_id(crear_account_id(1)),
+        };
+
+        let usuarios = vec![
+            crear_usuario_test(
+                crear_account_id(1),
+                "Usuario1",
+                "user1@test.com",
+                Rol::Comprador,
+                (450, 100), // 4.5 como comprador
+                (0, 0),     // Sin calificaciones como vendedor
+            ),
+            crear_usuario_test(
+                crear_account_id(2),
+                "Usuario2",
+                "user2@test.com",
+                Rol::Comprador,
+                (320, 100), // 3.2 como comprador
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(3),
+                "Usuario3",
+                "user3@test.com",
+                Rol::Comprador,
+                (500, 100), // 5.0 como comprador
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(4),
+                "Usuario4",
+                "user4@test.com",
+                Rol::Vendedor, // Este no debería ser incluido
+                (0, 0),
+                (420, 100),
+            ),
+            crear_usuario_test(
+                crear_account_id(5),
+                "Usuario5",
+                "user5@test.com",
+                Rol::Comprador,
+                (390, 100), // 3.9 como comprador
+                (0, 0),
+            ),
+        ];
+
+        let target_role = Rol::Comprador;
+
+        // Act
+        let resultado = reportes._filtrar_usuarios_por_rol_desc(usuarios, &target_role);
+
+        // Assert
+        assert_eq!(resultado.len(), 4, "Solo 4 usuarios tienen rol Comprador");
+        
+        // Verificar que están ordenados por calificación de comprador descendente
+        // Orden esperado: 5.0, 4.5, 3.9, 3.2
+        assert_eq!(resultado[0].get_name(), "Usuario3"); // 5.0
+        assert_eq!(resultado[1].get_name(), "Usuario1"); // 4.5
+        assert_eq!(resultado[2].get_name(), "Usuario5"); // 3.9
+        assert_eq!(resultado[3].get_name(), "Usuario2"); // 3.2
+    }
+
+    #[test]
+    fn test_filtrar_usuarios_por_rol_desc_vendedor() {
+        // Arrange
+        let reportes = Reportes {
+            original: SistemaRef::from_account_id(crear_account_id(1)),
+        };
+
+        let usuarios = vec![
+            crear_usuario_test(
+                crear_account_id(1),
+                "Usuario1",
+                "user1@test.com",
+                Rol::Vendedor,
+                (0, 0), // Sin calificaciones como comprador
+                (300, 100), // 3.0 como vendedor
+            ),
+            crear_usuario_test(
+                crear_account_id(2),
+                "Usuario2",
+                "user2@test.com",
+                Rol::Vendedor,
+                (0, 0),
+                (480, 100), // 4.8 como vendedor
+            ),
+            crear_usuario_test(
+                crear_account_id(3),
+                "Usuario3",
+                "user3@test.com",
+                Rol::Comprador, // Este no debería ser incluido
+                (500, 100),
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(4),
+                "Usuario4",
+                "user4@test.com",
+                Rol::Vendedor,
+                (0, 0),
+                (420, 100), // 4.2 como vendedor
+            ),
+            crear_usuario_test(
+                crear_account_id(5),
+                "Usuario5",
+                "user5@test.com",
+                Rol::Vendedor,
+                (0, 0),
+                (350, 100), // 3.5 como vendedor
+            ),
+        ];
+
+        let target_role = Rol::Vendedor;
+
+        // Act
+        let resultado = reportes._filtrar_usuarios_por_rol_desc(usuarios, &target_role);
+
+        // Assert
+        assert_eq!(resultado.len(), 4, "Solo 4 usuarios tienen rol Vendedor");
+        
+        // Verificar que están ordenados por calificación de vendedor descendente
+        // Orden esperado: 4.8, 4.2, 3.5, 3.0
+        assert_eq!(resultado[0].get_name(), "Usuario2"); // 4.8
+        assert_eq!(resultado[1].get_name(), "Usuario4"); // 4.2
+        assert_eq!(resultado[2].get_name(), "Usuario5"); // 3.5
+        assert_eq!(resultado[3].get_name(), "Usuario1"); // 3.0
+    }
+
+    #[test]
+    fn test_listar_mejores_cinco_usuarios_vendedores() {
+        // Arrange
+        let reportes = Reportes {
+            original: SistemaRef::from_account_id(crear_account_id(1)),
+        };
+
+        let mut usuarios_filtrados = vec![
+            crear_usuario_test(
+                crear_account_id(1),
+                "Vendedor1",
+                "v1@test.com",
+                Rol::Vendedor,
+                (0, 0),
+                (450, 100), // 4.5 como vendedor
+            ),
+            crear_usuario_test(
+                crear_account_id(2),
+                "Vendedor2",
+                "v2@test.com",
+                Rol::Vendedor,
+                (0, 0),
+                (320, 100), // 3.2 como vendedor
+            ),
+            crear_usuario_test(
+                crear_account_id(3),
+                "Vendedor3",
+                "v3@test.com",
+                Rol::Vendedor,
+                (0, 0),
+                (500, 100), // 5.0 como vendedor - el mejor
+            ),
+            crear_usuario_test(
+                crear_account_id(4),
+                "Vendedor4",
+                "v4@test.com",
+                Rol::Vendedor,
+                (0, 0),
+                (180, 100), // 1.8 como vendedor - el peor
+            ),
+            crear_usuario_test(
+                crear_account_id(5),
+                "Vendedor5",
+                "v5@test.com",
+                Rol::Vendedor,
+                (0, 0),
+                (390, 100), // 3.9 como vendedor
+            ),
+            crear_usuario_test(
+                crear_account_id(6),
+                "Vendedor6",
+                "v6@test.com",
+                Rol::Vendedor,
+                (0, 0),
+                (470, 100), // 4.7 como vendedor
+            ),
+        ];
+
+        // Ordenar usuarios manualmente como lo haría _filtrar_usuarios_por_rol_desc
+        let target_role = Rol::Vendedor;
+        usuarios_filtrados.sort_by(|a, b| {
+            let cal_a = a.get_calificacion_vendedor().unwrap_or("0.0".to_string());
+            let cal_b = b.get_calificacion_vendedor().unwrap_or("0.0".to_string());
+            cal_b.cmp(&cal_a) // Orden descendente
+        });
+
+        // Act
+        let resultado = reportes._listar_mejores_cinco_usuarios(usuarios_filtrados, &target_role);
+
+        // Assert
+        assert_eq!(resultado.len(), 5, "Debe retornar solo los 5 mejores usuarios");
+
+        // Verificar orden descendente: 5.0, 4.7, 4.5, 3.9, 3.2 (excluye 1.8)
+        assert_eq!(resultado[0].nombre_usuario, "Vendedor3"); // 5.0
+        assert_eq!(resultado[0].promedio_calificaciones, "5.0");
+        
+        assert_eq!(resultado[1].nombre_usuario, "Vendedor6"); // 4.7
+        assert_eq!(resultado[1].promedio_calificaciones, "4.7");
+        
+        assert_eq!(resultado[2].nombre_usuario, "Vendedor1"); // 4.5
+        assert_eq!(resultado[2].promedio_calificaciones, "4.5");
+        
+        assert_eq!(resultado[3].nombre_usuario, "Vendedor5"); // 3.9
+        assert_eq!(resultado[3].promedio_calificaciones, "3.9");
+        
+        assert_eq!(resultado[4].nombre_usuario, "Vendedor2"); // 3.2
+        assert_eq!(resultado[4].promedio_calificaciones, "3.2");
+
+        // Verificar que el sexto usuario (el peor) no está incluido
+        assert!(resultado.iter().all(|u| u.nombre_usuario != "Vendedor4"));
+    }
+
+    #[test]
+    fn test_listar_mejores_cinco_usuarios_compradores() {
+        // Arrange
+        let reportes = Reportes {
+            original: SistemaRef::from_account_id(crear_account_id(1)),
+        };
+
+        let mut usuarios_filtrados = vec![
+            crear_usuario_test(
+                crear_account_id(1),
+                "Comprador1",
+                "c1@test.com",
+                Rol::Comprador,
+                (280, 100), // 2.8 como comprador
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(2),
+                "Comprador2",
+                "c2@test.com",
+                Rol::Comprador,
+                (490, 100), // 4.9 como comprador
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(3),
+                "Comprador3",
+                "c3@test.com",
+                Rol::Comprador,
+                (350, 100), // 3.5 como comprador
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(4),
+                "Comprador4",
+                "c4@test.com",
+                Rol::Comprador,
+                (500, 100), // 5.0 como comprador - el mejor
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(5),
+                "Comprador5",
+                "c5@test.com",
+                Rol::Comprador,
+                (150, 100), // 1.5 como comprador - el peor
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(6),
+                "Comprador6",
+                "c6@test.com",
+                Rol::Comprador,
+                (420, 100), // 4.2 como comprador
+                (0, 0),
+            ),
+        ];
+
+        // Ordenar usuarios manualmente como lo haría _filtrar_usuarios_por_rol_desc
+        let target_role = Rol::Comprador;
+        usuarios_filtrados.sort_by(|a, b| {
+            let cal_a = a.get_calificacion_comprador().unwrap_or("0.0".to_string());
+            let cal_b = b.get_calificacion_comprador().unwrap_or("0.0".to_string());
+            cal_b.cmp(&cal_a) // Orden descendente
+        });
+
+        // Act
+        let resultado = reportes._listar_mejores_cinco_usuarios(usuarios_filtrados, &target_role);
+
+        // Assert
+        assert_eq!(resultado.len(), 5, "Debe retornar solo los 5 mejores usuarios");
+
+        // Verificar orden descendente: 5.0, 4.9, 4.2, 3.5, 2.8 (excluye 1.5)
+        assert_eq!(resultado[0].nombre_usuario, "Comprador4"); // 5.0
+        assert_eq!(resultado[0].promedio_calificaciones, "5.0");
+        
+        assert_eq!(resultado[1].nombre_usuario, "Comprador2"); // 4.9
+        assert_eq!(resultado[1].promedio_calificaciones, "4.9");
+        
+        assert_eq!(resultado[2].nombre_usuario, "Comprador6"); // 4.2
+        assert_eq!(resultado[2].promedio_calificaciones, "4.2");
+        
+        assert_eq!(resultado[3].nombre_usuario, "Comprador3"); // 3.5
+        assert_eq!(resultado[3].promedio_calificaciones, "3.5");
+        
+        assert_eq!(resultado[4].nombre_usuario, "Comprador1"); // 2.8
+        assert_eq!(resultado[4].promedio_calificaciones, "2.8");
+
+        // Verificar que el sexto usuario (el peor) no está incluido
+        assert!(resultado.iter().all(|u| u.nombre_usuario != "Comprador5"));
+    }
+
+    // Helper function para crear una orden de prueba
+    fn crear_orden_test(
+        id: u32,
+        id_comprador: AccountId,
+        id_vendedor: AccountId,
+        id_publicacion: u32,
+        cantidad: u32,
+    ) -> Orden {
+        Orden::new(id, id_publicacion, id_vendedor, id_comprador, cantidad, 0) // precio_total = 0 por defecto
+    }
+
+    #[test]
+    fn test_mejores_usuarios_por_rol_comprador() {
+        // Arrange
+        let reportes = Reportes {
+            original: SistemaRef::from_account_id(crear_account_id(1)),
+        };
+
+        let usuarios = vec![
+            crear_usuario_test(
+                crear_account_id(1),
+                "Comprador1",
+                "c1@test.com",
+                Rol::Comprador,
+                (450, 100), // 4.5 como comprador
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(2),
+                "Comprador2",
+                "c2@test.com",
+                Rol::Comprador,
+                (320, 100), // 3.2 como comprador
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(3),
+                "Comprador3",
+                "c3@test.com",
+                Rol::Comprador,
+                (500, 100), // 5.0 como comprador - el mejor
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(4),
+                "Vendedor1",
+                "v1@test.com",
+                Rol::Vendedor, // Este no debería ser incluido
+                (0, 0),
+                (420, 100),
+            ),
+            crear_usuario_test(
+                crear_account_id(5),
+                "Comprador4",
+                "c4@test.com",
+                Rol::Comprador,
+                (390, 100), // 3.9 como comprador
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(6),
+                "Comprador5",
+                "c5@test.com",
+                Rol::Comprador,
+                (280, 100), // 2.8 como comprador
+                (0, 0),
+            ),
+        ];
+
+        let target_role = Rol::Comprador;
+
+        // Act
+        let resultado = reportes._mejores_usuarios_por_rol(usuarios, &target_role);
+
+        // Assert
+        assert_eq!(resultado.len(), 5, "Debe retornar solo los 5 mejores compradores");
+
+        // Verificar que están ordenados por calificación descendente y limitados a 5
+        // Orden esperado: 5.0, 4.5, 3.9, 3.2, 2.8 (excluye al vendedor)
+        assert_eq!(resultado[0].nombre_usuario, "Comprador3"); // 5.0
+        assert_eq!(resultado[0].promedio_calificaciones, "5.0");
+        
+        assert_eq!(resultado[1].nombre_usuario, "Comprador1"); // 4.5
+        assert_eq!(resultado[1].promedio_calificaciones, "4.5");
+        
+        assert_eq!(resultado[2].nombre_usuario, "Comprador4"); // 3.9
+        assert_eq!(resultado[2].promedio_calificaciones, "3.9");
+        
+        assert_eq!(resultado[3].nombre_usuario, "Comprador2"); // 3.2
+        assert_eq!(resultado[3].promedio_calificaciones, "3.2");
+        
+        assert_eq!(resultado[4].nombre_usuario, "Comprador5"); // 2.8
+        assert_eq!(resultado[4].promedio_calificaciones, "2.8");
+
+        // Verificar que el vendedor no está incluido
+        assert!(resultado.iter().all(|u| u.nombre_usuario != "Vendedor1"));
+    }
+
+    #[test]
+    fn test_cantidad_de_ordenes_por_usuario() {
+        // Arrange
+        let reportes = Reportes {
+            original: SistemaRef::from_account_id(crear_account_id(1)),
+        };
+
+        let usuarios = vec![
+            crear_usuario_test(
+                crear_account_id(1),
+                "Usuario1",
+                "u1@test.com",
+                Rol::Comprador,
+                (0, 0),
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(2),
+                "Usuario2",
+                "u2@test.com",
+                Rol::Comprador,
+                (0, 0),
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(3),
+                "Usuario3",
+                "u3@test.com",
+                Rol::Comprador,
+                (0, 0),
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(4),
+                "Usuario4",
+                "u4@test.com",
+                Rol::Comprador,
+                (0, 0),
+                (0, 0),
+            ),
+            crear_usuario_test(
+                crear_account_id(5),
+                "Usuario5",
+                "u5@test.com",
+                Rol::Comprador,
+                (0, 0),
+                (0, 0),
+            ),
+        ];
+
+        let ordenes = vec![
+            crear_orden_test(1, crear_account_id(1), crear_account_id(10), 1, 2), // Usuario1 - 1 orden
+            crear_orden_test(2, crear_account_id(2), crear_account_id(10), 2, 1), // Usuario2 - 1 orden
+            crear_orden_test(3, crear_account_id(2), crear_account_id(10), 3, 3), // Usuario2 - 2 orden
+            crear_orden_test(4, crear_account_id(3), crear_account_id(10), 4, 1), // Usuario3 - 1 orden
+            crear_orden_test(5, crear_account_id(3), crear_account_id(10), 5, 2), // Usuario3 - 2 orden
+            crear_orden_test(6, crear_account_id(3), crear_account_id(10), 6, 1), // Usuario3 - 3 orden
+            crear_orden_test(7, crear_account_id(4), crear_account_id(10), 7, 1), // Usuario4 - 1 orden
+            crear_orden_test(8, crear_account_id(5), crear_account_id(10), 8, 2), // Usuario5 - 1 orden
+            crear_orden_test(9, crear_account_id(5), crear_account_id(10), 9, 1), // Usuario5 - 2 orden
+        ];
+
+        // Act
+        let resultado = reportes._cantidad_de_ordenes_por_usuario(usuarios, ordenes);
+
+        // Assert
+        assert_eq!(resultado.len(), 5, "Debe retornar info para todos los usuarios");
+
+        // Verificar cantidad de órdenes por usuario
+        assert_eq!(resultado[0].nombre_usuario, "Usuario1");
+        assert_eq!(resultado[0].cantidad_ordenes, 1, "Usuario1 debe tener 1 orden");
+        
+        assert_eq!(resultado[1].nombre_usuario, "Usuario2");
+        assert_eq!(resultado[1].cantidad_ordenes, 2, "Usuario2 debe tener 2 órdenes");
+        
+        assert_eq!(resultado[2].nombre_usuario, "Usuario3");
+        assert_eq!(resultado[2].cantidad_ordenes, 3, "Usuario3 debe tener 3 órdenes");
+        
+        assert_eq!(resultado[3].nombre_usuario, "Usuario4");
+        assert_eq!(resultado[3].cantidad_ordenes, 1, "Usuario4 debe tener 1 orden");
+        
+        assert_eq!(resultado[4].nombre_usuario, "Usuario5");
+        assert_eq!(resultado[4].cantidad_ordenes, 2, "Usuario5 debe tener 2 órdenes");
     }
 }
